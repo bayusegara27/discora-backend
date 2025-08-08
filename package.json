@@ -1,8 +1,9 @@
 
+
 {
-  "name": "aurabot-bot",
+  "name": "discora-bot",
   "version": "1.0.0",
-  "description": "The Discord bot backend for the AuraBot Dashboard.",
+  "description": "The Discord bot backend for the Discora Dashboard.",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
@@ -14,6 +15,6 @@
     "node-cron": "^3.0.3",
     "node-fetch": "^2.7.0"
   },
-  "author": "AuraBot Developer",
+  "author": "Discora Developer",
   "license": "ISC"
 }
