@@ -1,3 +1,4 @@
+
 const { databases, Query } = require('../services/appwrite');
 const config = require('../config');
 
@@ -8,16 +9,23 @@ const STATS_COLLECTION = config.APPWRITE.COLLECTIONS.STATS;
  * Resets daily message counts for all guilds.
  */
 async function resetDailyStats() {
-    console.log("Midnight reset: Resetting daily message counts...");
+    console.log("[CRON: DailyReset] Starting daily message count reset...");
     try {
         const allStats = await databases.listDocuments(DB_ID, STATS_COLLECTION, [Query.limit(5000)]);
-        for (const doc of allStats.documents) {
-            const updates = { messagesToday: 0 };
-            await databases.updateDocument(DB_ID, STATS_COLLECTION, doc.$id, updates);
+        if (allStats.documents.length === 0) {
+            console.log("[CRON: DailyReset] No stats documents to reset. Task complete.");
+            return;
         }
-        console.log("Daily message count reset complete.");
+
+        const updates = allStats.documents.map(doc => 
+            databases.updateDocument(DB_ID, STATS_COLLECTION, doc.$id, { messagesToday: 0 })
+        );
+        
+        await Promise.all(updates);
+
+        console.log(`[CRON: DailyReset] Successfully reset daily message counts for ${allStats.documents.length} guilds.`);
     } catch (e) {
-        console.error("Failed to reset daily message counts:", e.message);
+        console.error("[CRON: DailyReset] Failed to reset daily message counts:", e.message);
     }
 }
 

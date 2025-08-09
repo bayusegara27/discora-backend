@@ -1,3 +1,4 @@
+
 const { databases } = require('../services/appwrite');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');
@@ -22,9 +23,13 @@ async function processGiveawayQueue(client) {
                 const channel = await client.channels.fetch(giveaway.channelId);
                 const endsAtTimestamp = Math.floor(new Date(giveaway.endsAt).getTime() / 1000);
 
+                if (!channel || !channel.isTextBased()) {
+                    throw new Error(`Channel ${giveaway.channelId} not found or is not a text channel.`);
+                }
+
                 const embed = new EmbedBuilder()
                     .setTitle(`🎉 GIVEAWAY: ${giveaway.prize} 🎉`)
-                    .setDescription(`React with 🎉 to enter!\nEnds: <t:${endsAtTimestamp}:R>\nWinners: **${giveaway.winnerCount}**`)
+                    .setDescription(`React with 🎉 to enter!\nEnds: <t:${endsAtTimestamp}:R> (<t:${endsAtTimestamp}:F>)\nWinners: **${giveaway.winnerCount}**`)
                     .setColor('#FFD700')
                     .setTimestamp(new Date(giveaway.endsAt));
 
@@ -32,15 +37,18 @@ async function processGiveawayQueue(client) {
                 await message.react('🎉');
 
                 await databases.updateDocument(DB_ID, GIVEAWAYS_COLLECTION, giveaway.$id, { messageId: message.id });
+                console.log(`[CRON: Giveaways] Successfully created giveaway message for "${giveaway.prize}" in #${channel.name}.`);
             
             } catch(e) {
-                console.error(`Failed to process giveaway queue item ${item.$id}:`, e.message);
+                console.error(`[CRON: Giveaways] Failed to process queue item ${item.$id} (Giveaway: ${item.giveawayId}):`, e.message);
+                // Optionally mark the giveaway as errored in the main table
+                await databases.updateDocument(DB_ID, GIVEAWAYS_COLLECTION, item.giveawayId, { status: 'error' }).catch(() => {});
             } finally {
                 await databases.deleteDocument(DB_ID, QUEUE_COLLECTION, item.$id);
             }
         }
     } catch(error) {
-        console.error("Error fetching giveaway queue:", error);
+        console.error("[CRON: Giveaways] Error fetching giveaway queue:", error);
     }
 }
 

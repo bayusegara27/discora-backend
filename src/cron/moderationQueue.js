@@ -1,3 +1,4 @@
+
 const { databases } = require('../services/appwrite');
 const config = require('../config');
 const { logAuditEvent } = require('../utils/loggers');
@@ -21,7 +22,7 @@ async function processModerationQueue(client) {
                 const member = await guild.members.fetch(action.targetUserId);
                 const initiator = await guild.members.fetch(action.initiatorId);
                 
-                console.log(`[CRON: Moderation] Executing '${action.actionType}' on user ${action.targetUsername} in guild ${guild.name}.`);
+                console.log(`[CRON: Moderation] Executing '${action.actionType}' on user ${action.targetUsername} in guild ${guild.name}, initiated by ${initiator.user.tag}.`);
 
                 if (action.actionType === 'kick') {
                     await member.kick(action.reason || 'No reason provided.');
@@ -32,14 +33,14 @@ async function processModerationQueue(client) {
                 }
 
             } catch (err) {
-                console.error(`Failed to process mod action ${action.$id} for user ${action.targetUserId}:`, err.message);
+                console.error(`[CRON: Moderation] Failed to process action ${action.$id} for user ${action.targetUsername} (${action.targetUserId}):`, err.message);
             } finally {
                 // Always delete the action from the queue, whether it succeeded or failed.
                 await databases.deleteDocument(DB_ID, MOD_QUEUE_COLLECTION, action.$id);
             }
         }
     } catch(e) {
-        console.error("Error processing moderation queue:", e.message);
+        console.error("[CRON: Moderation] Error fetching moderation queue:", e.message);
     }
 }
 

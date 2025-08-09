@@ -1,3 +1,4 @@
+
 const { databases, Query } = require('../services/appwrite');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');
@@ -13,16 +14,19 @@ const GIVEAWAYS_COLLECTION = config.APPWRITE.COLLECTIONS.GIVEAWAYS;
  * @param {import('discord.js').Client} client The Discord client instance.
  */
 async function endGiveaway(giveawayId, isReroll = false, client) {
+    let giveaway, channel;
     try {
-        const giveaway = await databases.getDocument(DB_ID, GIVEAWAYS_COLLECTION, giveawayId);
-        console.log(`[CRON: Giveaway] Ending giveaway "${giveaway.prize}" (ID: ${giveaway.$id}) in guild ${giveaway.guildId}.`);
+        giveaway = await databases.getDocument(DB_ID, GIVEAWAYS_COLLECTION, giveawayId);
+        const action = isReroll ? 'Rerolling' : 'Ending';
+        console.log(`[CRON: GiveawayEnd] ${action} giveaway "${giveaway.prize}" (ID: ${giveaway.messageId}) in guild ${giveaway.guildId}.`);
+        
         const guild = await client.guilds.fetch(giveaway.guildId);
-        const channel = await guild.channels.fetch(giveaway.channelId);
+        channel = await guild.channels.fetch(giveaway.channelId);
         const message = await channel.messages.fetch(giveaway.messageId);
 
         const reaction = message.reactions.cache.get('🎉');
         if (!reaction) {
-             console.log(`[CRON: Giveaway] No '🎉' reaction found on giveaway message.`);
+             console.log(`[CRON: GiveawayEnd] No '🎉' reaction found on giveaway message ${giveaway.messageId}.`);
              await message.edit({ embeds: [EmbedBuilder.from(message.embeds[0]).setDescription('Giveaway ended. No one reacted.').setColor('#FF0000')], components: [] });
              await databases.updateDocument(DB_ID, GIVEAWAYS_COLLECTION, giveaway.$id, { status: 'ended', winners: [] });
              return;
@@ -30,7 +34,7 @@ async function endGiveaway(giveawayId, isReroll = false, client) {
 
         const users = await reaction.users.fetch();
         const entrants = users.filter(u => !u.bot).map(u => u.id);
-        console.log(`[CRON: Giveaway] Found ${entrants.length} entrants.`);
+        console.log(`[CRON: GiveawayEnd] Found ${entrants.length} entrants for "${giveaway.prize}".`);
 
         if (entrants.length === 0) {
             await message.edit({ embeds: [EmbedBuilder.from(message.embeds[0]).setDescription('Giveaway ended. Not enough entrants.').setColor('#FF0000')], components: [] });
@@ -48,13 +52,13 @@ async function endGiveaway(giveawayId, isReroll = false, client) {
         }
 
         const winnerTags = winnerIds.map(id => `<@${id}>`).join(', ');
-        console.log(`[CRON: Giveaway] Winners: ${winnerTags}`);
+        console.log(`[CRON: GiveawayEnd] Selected winner(s) for "${giveaway.prize}": ${winnerTags}`);
 
         const announcement = isReroll
             ? `A new winner has been rerolled for the **${giveaway.prize}** giveaway! Congratulations ${winnerTags}!`
             : `Congratulations ${winnerTags}! You won the **${giveaway.prize}**!`;
             
-        await channel.send(announcement);
+        await channel.send({ content: announcement, "allowedMentions": { "users" : winnerIds } });
 
         const endedEmbed = EmbedBuilder.from(message.embeds[0])
             .setDescription(`Giveaway ended!\nWinners: ${winnerTags}`)
@@ -62,15 +66,20 @@ async function endGiveaway(giveawayId, isReroll = false, client) {
         await message.edit({ embeds: [endedEmbed], components: [] });
         
         await databases.updateDocument(DB_ID, GIVEAWAYS_COLLECTION, giveaway.$id, { status: 'ended', winners: winnerIds });
-        if (!isReroll) {
-            await logAuditEvent(giveaway.guildId, 'GIVEAWAY_ENDED', client.user, `Giveaway for "${giveaway.prize}" ended. Winners: ${winnerIds.join(', ')}`);
-        } else {
-            await logAuditEvent(giveaway.guildId, 'GIVEAWAY_ENDED', client.user, `(Reroll) Giveaway for "${giveaway.prize}" ended. New Winners: ${winnerIds.join(', ')}`);
-        }
+        const logType = isReroll ? 'GIVEAWAY_REROLLED' : 'GIVEAWAY_ENDED';
+        const logContent = `Giveaway for "${giveaway.prize}" ended. Winners: ${winnerIds.map(id => `<@${id}>`).join(', ')}`;
+        await logAuditEvent(giveaway.guildId, logType, client.user, logContent);
 
     } catch (e) {
-        console.error(`Failed to end giveaway ${giveawayId}:`, e);
-        await databases.updateDocument(DB_ID, GIVEAWAYS_COLLECTION, giveawayId, { status: 'error' }).catch(() => {});
+        console.error(`[CRON: GiveawayEnd] Failed to process giveaway ${giveawayId}:`, e.message);
+        try {
+            if (channel && giveaway) {
+                channel.send(`There was an error while trying to end the giveaway for **${giveaway.prize}**. Please check bot permissions.`);
+            }
+            await databases.updateDocument(DB_ID, GIVEAWAYS_COLLECTION, giveawayId, { status: 'error' }).catch(() => {});
+        } catch(finalError) {
+             console.error(`[CRON: GiveawayEnd] Could not notify channel or update DB for failed giveaway ${giveawayId}:`, finalError.message);
+        }
     }
 }
 
@@ -86,13 +95,13 @@ async function checkGiveaways(client) {
             Query.lessThanEqual('endsAt', now)
         ]);
         if (documents.length > 0) {
-            console.log(`[CRON: Giveaway] Found ${documents.length} giveaway(s) to end.`);
+            console.log(`[CRON: GiveawayEnd] Found ${documents.length} giveaway(s) to end.`);
         }
         for (const giveaway of documents) {
             await endGiveaway(giveaway.$id, false, client);
         }
     } catch (error) {
-        console.error("Error checking for ending giveaways:", error);
+        console.error("[CRON: GiveawayEnd] Error checking for ending giveaways:", error);
     }
 }
 

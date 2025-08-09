@@ -1,3 +1,4 @@
+
 const { guildSettings } = require('../utils/cache');
 const { logAuditEvent } = require('../utils/loggers');
 
@@ -6,7 +7,7 @@ const { logAuditEvent } = require('../utils/loggers');
  * @param {import('discord.js').GuildMember} member The member who joined.
  */
 async function onGuildMemberAdd(member) {
-    console.log(`[EVENT] User ${member.user.tag} joined guild ${member.guild.name}.`);
+    console.log(`[EVENT] User ${member.user.tag} joined guild ${member.guild.name} (${member.guild.id}).`);
     const settings = guildSettings.get(member.guild.id);
     if (!settings) return;
 
@@ -18,10 +19,10 @@ async function onGuildMemberAdd(member) {
                 const welcomeMessage = (settings.welcome.message || 'Welcome to the server, {user}! Enjoy your stay.')
                     .replace('{user}', member.toString());
                 await channel.send(welcomeMessage);
-                console.log(`[DEBUG] Sent welcome message for ${member.user.tag} in ${member.guild.name}.`);
+                console.log(`[Welcome] Sent welcome message for ${member.user.tag} in ${member.guild.name}.`);
             }
         } catch (e) {
-            console.error(`Welcome message failed for guild ${member.guild.id}:`, e.message);
+            console.error(`[Welcome] Failed for guild ${member.guild.name} (${member.guild.id}):`, e.message);
         }
     }
 
@@ -31,10 +32,10 @@ async function onGuildMemberAdd(member) {
             const role = await member.guild.roles.fetch(settings.autoRole.roleId);
             if (role) {
                 await member.roles.add(role);
-                console.log(`[DEBUG] Applied auto-role '${role.name}' to ${member.user.tag} in ${member.guild.name}.`);
+                console.log(`[AutoRole] Applied role '${role.name}' to ${member.user.tag} in ${member.guild.name}.`);
             }
         } catch (e) {
-            console.error(`Auto-role failed for guild ${member.guild.id}:`, e.message);
+            console.error(`[AutoRole] Failed for guild ${member.guild.name} (${member.guild.id}):`, e.message);
         }
     }
 

@@ -1,3 +1,4 @@
+
 const { databases, Query } = require('../services/appwrite');
 const config = require('../config');
 
@@ -14,8 +15,22 @@ async function onReaction(reaction, user, added) {
     if (user.bot) return;
 
     // Resolve partials to ensure all data is available
-    if (reaction.partial) await reaction.fetch();
-    if (reaction.message.partial) await reaction.message.fetch();
+    if (reaction.partial) {
+        try {
+            await reaction.fetch();
+        } catch (error) {
+            console.error('[Reaction] Failed to fetch partial reaction:', error);
+            return;
+        }
+    }
+    if (reaction.message.partial) {
+        try {
+            await reaction.message.fetch();
+        } catch (error) {
+            console.error('[Reaction] Failed to fetch partial message:', error);
+            return;
+        }
+    }
 
     const { message } = reaction;
     if (!message.guild) return;
@@ -38,17 +53,19 @@ async function onReaction(reaction, user, added) {
         const member = await message.guild.members.fetch(user.id);
         const role = await message.guild.roles.fetch(roleConfig.roleId);
 
-        if (!member || !role) return;
-
-        if (added) {
-            await member.roles.add(role);
-            console.log(`[DEBUG] Reaction Role: Added role '${role.name}' to ${user.tag} in guild ${message.guild.name}`);
-        } else {
-            await member.roles.remove(role);
-            console.log(`[DEBUG] Reaction Role: Removed role '${role.name}' from ${user.tag} in guild ${message.guild.name}`);
+        if (!member || !role) {
+            console.warn(`[Reaction] Could not find member or role for reaction role ${reactionRole.$id}. Member: ${!!member}, Role: ${!!role}`);
+            return;
         }
+
+        const action = added ? 'add' : 'remove';
+        const logAction = added ? 'Added' : 'Removed';
+
+        await member.roles[action](role);
+        console.log(`[ReactionRole] ${logAction} role "${role.name}" to/from ${user.tag} in guild ${message.guild.name}.`);
+
     } catch (error) {
-        console.error(`Error handling reaction role for user ${user.id} in guild ${message.guild.id}:`, error);
+        console.error(`[ReactionRole] Error handling reaction role for user ${user.tag} in guild ${message.guild.name}:`, error);
     }
 }
 

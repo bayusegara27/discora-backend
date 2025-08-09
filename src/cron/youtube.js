@@ -1,5 +1,4 @@
 
-
 const { databases, Query } = require('../services/appwrite');
 const config = require('../config');
 const { fetchYoutubeChannelName, isVideoLive } = require('../utils/helpers');
@@ -29,7 +28,10 @@ const parseVideosFromFeed = (feedText) => {
 const sendNotification = async (client, sub, video) => {
     try {
         const channel = await client.channels.fetch(sub.discordChannelId);
-        if (!channel?.isTextBased()) return;
+        if (!channel?.isTextBased()) {
+             console.warn(`[YouTube] Notification channel ${sub.discordChannelId} for sub ${sub.$id} not found or not a text channel.`);
+             return;
+        };
 
         const isLive = await isVideoLive(video.id);
         const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
@@ -50,46 +52,42 @@ const sendNotification = async (client, sub, video) => {
             .replace(/{videoUrl}/g, videoUrl);
             
         await channel.send(messageContent);
-        console.log(`[YouTube] Posted notification for ${video.id} to #${channel.name}.`);
+        console.log(`[YouTube] Posted notification for video "${video.title}" to #${channel.name}.`);
 
     } catch (notificationError) {
-        console.error(`[YouTube] Failed to send notification for video ${video.id}:`, notificationError.message);
+        console.error(`[YouTube] Failed to send notification for video ${video.id} (sub ${sub.$id}):`, notificationError.message);
     }
 };
 
 /**
- * Checks all YouTube subscriptions for new videos. This is a more robust version.
+ * Checks all YouTube subscriptions for new videos.
  * @param {import('discord.js').Client} client The Discord client instance.
  */
 async function checkYouTube(client) {
     if (isCheckingYouTube) {
-        console.log('[YouTube] Check already in progress. Skipping.');
+        console.log('[CRON: YouTube] Check already in progress. Skipping.');
         return;
     }
     isCheckingYouTube = true;
-    console.log('[YouTube] Starting check for new videos...');
+    console.log('[CRON: YouTube] Starting check for new videos...');
 
     try {
         const { documents: allSubs } = await databases.listDocuments(DB_ID, SUBS_COLLECTION, [Query.limit(5000)]);
         if (allSubs.length === 0) {
-            isCheckingYouTube = false;
-            console.log('[YouTube] No subscriptions found. Finished check.');
+            console.log('[CRON: YouTube] No subscriptions found. Finished check.');
             return;
         }
 
         for (const sub of allSubs) {
+            const updatePayload = {};
             try {
-                let needsUpdate = false;
-                const updatePayload = {};
-
                 // Fetch and update YouTube channel name if missing
                 if (!sub.youtubeChannelName) {
                     const channelName = await fetchYoutubeChannelName(sub.youtubeChannelId);
                     if (channelName) {
                         sub.youtubeChannelName = channelName; // Update in-memory object
                         updatePayload.youtubeChannelName = channelName;
-                        needsUpdate = true;
-                        console.log(`[YouTube] Fetched YT channel name for ${sub.youtubeChannelId} to "${channelName}"`);
+                        console.log(`[YouTube] Fetched YT channel name for ${sub.youtubeChannelId}: "${channelName}"`);
                     }
                 }
 
@@ -99,16 +97,12 @@ async function checkYouTube(client) {
                     if (discordChannel) {
                         sub.discordChannelName = discordChannel.name; // Update in-memory object
                         updatePayload.discordChannelName = discordChannel.name;
-                        needsUpdate = true;
-                        console.log(`[YouTube] Fetched Discord channel name for ${sub.discordChannelId} to "#${discordChannel.name}"`);
+                        console.log(`[YouTube] Fetched Discord channel name for ${sub.discordChannelId}: "#${discordChannel.name}"`);
                     }
                 }
-
-                if (needsUpdate) {
-                    await databases.updateDocument(DB_ID, SUBS_COLLECTION, sub.$id, updatePayload);
-                }
-
-                const feedResponse = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${sub.youtubeChannelId}`);
+                
+                const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${sub.youtubeChannelId}`;
+                const feedResponse = await fetch(feedUrl);
                 if (!feedResponse.ok) {
                     console.warn(`[YouTube] Failed to fetch feed for ${sub.youtubeChannelName || sub.youtubeChannelId}. Status: ${feedResponse.status}`);
                     continue;
@@ -117,46 +111,52 @@ async function checkYouTube(client) {
                 const videosInFeed = parseVideosFromFeed(feedText);
                 if (videosInFeed.length === 0) continue;
                 
-                // Initialize subscription if it's new (announcedVideoIds is empty/not set)
+                // Initialize subscription if it's new
                 if (!sub.announcedVideoIds || sub.announcedVideoIds === '[]') {
                     const allVideoIds = videosInFeed.map(v => v.id);
-                    await databases.updateDocument(DB_ID, SUBS_COLLECTION, sub.$id, { 
-                        announcedVideoIds: JSON.stringify(allVideoIds),
-                        lastVideoTimestamp: new Date().toISOString()
-                    });
-                    console.log(`[YouTube] Initialized subscription for ${sub.youtubeChannelName || sub.youtubeChannelId}. Stored ${allVideoIds.length} video IDs.`);
-                    continue;
-                }
+                    updatePayload.announcedVideoIds = JSON.stringify(allVideoIds);
+                    updatePayload.lastVideoTimestamp = new Date().toISOString();
+                    console.log(`[YouTube] Initialized subscription for "${sub.youtubeChannelName}". Stored ${allVideoIds.length} latest video IDs.`);
+                } else {
+                    const announcedIds = new Set(JSON.parse(sub.announcedVideoIds || '[]'));
+                    const newVideosToAnnounce = videosInFeed.filter(video => !announcedIds.has(video.id));
 
-                const announcedIds = new Set(JSON.parse(sub.announcedVideoIds || '[]'));
-                const newVideosToAnnounce = videosInFeed.filter(video => !announcedIds.has(video.id));
+                    if (newVideosToAnnounce.length > 0) {
+                        console.log(`[YouTube] Found ${newVideosToAnnounce.length} new video(s) for "${sub.youtubeChannelName}".`);
+                        
+                        // Announce videos from oldest to newest
+                        for (const video of newVideosToAnnounce.slice().reverse()) {
+                            await sendNotification(client, sub, video);
+                        }
 
-                if (newVideosToAnnounce.length > 0) {
-                    console.log(`[YouTube] Found ${newVideosToAnnounce.length} new video(s) for ${sub.youtubeChannelName}.`);
-                    
-                    // Announce videos from oldest to newest
-                    for (const video of newVideosToAnnounce.slice().reverse()) {
-                        await sendNotification(client, sub, video);
+                        // Update the database payload with all new info
+                        const newAnnouncedIds = newVideosToAnnounce.map(v => v.id);
+                        const updatedIdList = [...Array.from(announcedIds), ...newAnnouncedIds].slice(-20); // Keep last 20
+                        
+                        const latestVideo = newVideosToAnnounce[newVideosToAnnounce.length - 1];
+
+                        updatePayload.announcedVideoIds = JSON.stringify(updatedIdList);
+                        updatePayload.lastVideoTimestamp = new Date().toISOString();
+                        updatePayload.lastAnnouncedVideoId = latestVideo.id;
+                        updatePayload.lastAnnouncedVideoTitle = latestVideo.title;
                     }
-
-                    // Update the database
-                    const newAnnouncedIds = newVideosToAnnounce.map(v => v.id);
-                    const updatedIdList = [...Array.from(announcedIds), ...newAnnouncedIds].slice(-20); // Keep last 20
-
-                    await databases.updateDocument(DB_ID, SUBS_COLLECTION, sub.$id, {
-                        announcedVideoIds: JSON.stringify(updatedIdList),
-                        lastVideoTimestamp: new Date().toISOString()
-                    });
                 }
+
+                // If there's anything to update, do it now in a single atomic call
+                if (Object.keys(updatePayload).length > 0) {
+                    console.log(`[YouTube] Updating DB for sub ${sub.$id} (${sub.youtubeChannelName}) with payload:`, updatePayload);
+                    await databases.updateDocument(DB_ID, SUBS_COLLECTION, sub.$id, updatePayload);
+                }
+
             } catch (error) {
-                console.error(`[YouTube] Error processing sub ${sub.$id} (${sub.youtubeChannelName}):`, error.message);
+                console.error(`[YouTube] Error processing sub ${sub.$id} (${sub.youtubeChannelName || 'ID:'+sub.youtubeChannelId}):`, error.message);
             }
         }
     } catch (error) {
-        console.error("[YouTube] Critical error fetching subscriptions:", error);
+        console.error("[CRON: YouTube] Critical error fetching subscriptions list:", error);
     } finally {
         isCheckingYouTube = false;
-        console.log('[YouTube] Finished checking for new videos.');
+        console.log('[CRON: YouTube] Finished checking for new videos.');
     }
 }
 

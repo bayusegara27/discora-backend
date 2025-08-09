@@ -1,3 +1,4 @@
+
 const { logAuditEvent } = require('../utils/loggers');
 
 /**
@@ -8,7 +9,7 @@ async function onMessageDelete(message) {
     // Ignore bots and messages without content or guild
     if (message.author?.bot || !message.content || !message.guild) return;
     
-    console.log(`[EVENT] Message from ${message.author?.tag} deleted in #${message.channel.name}.`);
+    console.log(`[EVENT] Message from ${message.author?.tag} deleted in #${message.channel.name} (${message.guild.name}).`);
 
     const content = message.content.length > 1000 ? message.content.substring(0, 1000) + '...' : message.content;
     const logContent = `Message by ${message.author.tag} deleted in #${message.channel.name}:\n"${content}"`;

@@ -1,3 +1,4 @@
+
 const { databases } = require('../services/appwrite');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');
@@ -14,22 +15,30 @@ async function processReactionRoleQueue(client) {
     try {
         const { documents } = await databases.listDocuments(DB_ID, QUEUE_COLLECTION);
         if (documents.length > 0) {
-            console.log(`[CRON: Reaction Roles] Processing ${documents.length} item(s) from queue.`);
+            console.log(`[CRON: ReactionRoles] Processing ${documents.length} item(s) from queue.`);
         }
         for (const item of documents) {
             try {
                 const rrDoc = await databases.getDocument(DB_ID, RR_COLLECTION, item.reactionRoleId);
                 const channel = await client.channels.fetch(rrDoc.channelId);
 
+                if (!channel || !channel.isTextBased()) {
+                    throw new Error(`Channel ${rrDoc.channelId} not found or is not a text channel.`);
+                }
+                
                 const roles = JSON.parse(rrDoc.roles || '[]');
-                let description = rrDoc.embedDescription + '\n\n';
+                if (roles.length === 0) {
+                     throw new Error(`No roles defined for reaction role document ${rrDoc.$id}.`);
+                }
+
+                let description = (rrDoc.embedDescription || '') + '\n\n';
                 for (const role of roles) {
                     description += `${role.emoji} - <@&${role.roleId}>\n`;
                 }
 
                 const embed = new EmbedBuilder()
                     .setTitle(rrDoc.embedTitle)
-                    .setDescription(description)
+                    .setDescription(description.trim())
                     .setColor(rrDoc.embedColor || '#5865F2');
                 
                 const message = await channel.send({ embeds: [embed] });
@@ -39,15 +48,16 @@ async function processReactionRoleQueue(client) {
                 }
 
                 await databases.updateDocument(DB_ID, RR_COLLECTION, rrDoc.$id, { messageId: message.id });
+                console.log(`[CRON: ReactionRoles] Successfully processed and posted reaction role ${rrDoc.$id} to #${channel.name}.`);
                 
             } catch (e) {
-                console.error(`Failed to process reaction role queue item ${item.$id}:`, e.message);
+                console.error(`[CRON: ReactionRoles] Failed to process queue item ${item.$id} (RR Doc: ${item.reactionRoleId}):`, e.message);
             } finally {
                 await databases.deleteDocument(DB_ID, QUEUE_COLLECTION, item.$id);
             }
         }
     } catch (error) {
-        console.error("Error fetching reaction role queue:", error);
+        console.error("[CRON: ReactionRoles] Error fetching reaction role queue:", error);
     }
 }
 

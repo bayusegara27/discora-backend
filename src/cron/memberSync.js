@@ -1,3 +1,4 @@
+
 const { databases, Query, ID } = require('../services/appwrite');
 const config = require('../config');
 
@@ -9,6 +10,7 @@ const MEMBERS_COLLECTION = config.APPWRITE.COLLECTIONS.MEMBERS;
  * @param {import('discord.js').Client} client The Discord client instance.
  */
 async function syncGuildMembers(client) {
+    console.log(`[CRON: MemberSync] Starting member sync for ${client.guilds.cache.size} guilds.`);
     for (const guild of client.guilds.cache.values()) {
         try {
             const members = await guild.members.fetch();
@@ -31,13 +33,18 @@ async function syncGuildMembers(client) {
                 if (existing.documents.length === 0) {
                     await databases.createDocument(DB_ID, MEMBERS_COLLECTION, ID.unique(), memberData);
                 } else {
-                    await databases.updateDocument(DB_ID, MEMBERS_COLLECTION, existing.documents[0].$id, memberData);
+                    // Only update if something has changed to reduce DB writes
+                    const doc = existing.documents[0];
+                    if (doc.username !== memberData.username || doc.userAvatarUrl !== memberData.userAvatarUrl) {
+                        await databases.updateDocument(DB_ID, MEMBERS_COLLECTION, doc.$id, memberData);
+                    }
                 }
             }
         } catch (error) {
-            console.error(`Failed to sync members for guild ${guild.name}:`, error.message);
+            console.error(`[CRON: MemberSync] Failed to sync members for guild ${guild.name} (${guild.id}):`, error.message);
         }
     }
+     console.log(`[CRON: MemberSync] Finished member sync.`);
 }
 
 module.exports = syncGuildMembers;

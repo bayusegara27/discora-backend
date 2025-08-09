@@ -1,3 +1,4 @@
+
 const { databases, Query, ID } = require('../services/appwrite');
 const config = require('../config');
 const { guildSettings, guildCustomCommands } = require('../utils/cache');
@@ -12,7 +13,7 @@ const COLLECTIONS = config.APPWRITE.COLLECTIONS;
  */
 async function syncWithDatabase() {
     try {
-        console.log('[CACHE] Syncing with database...');
+        console.log('[CACHE] Starting cache sync with database...');
         const [settingsDocs, commandDocs] = await Promise.all([
             databases.listDocuments(DB_ID, COLLECTIONS.SETTINGS, [Query.limit(5000)]),
             databases.listDocuments(DB_ID, COLLECTIONS.COMMANDS, [Query.limit(5000)]),
@@ -30,10 +31,10 @@ async function syncWithDatabase() {
                 };
                 guildSettings.set(doc.guildId, { $id: doc.$id, guildId: doc.guildId, ...parsedSettings });
             } catch (e) {
-                console.error(`Failed to parse JSON settings for guild ${doc.guildId}`, e.message)
+                console.error(`[CACHE] Failed to parse JSON settings for guild ${doc.guildId}:`, e.message)
             }
         });
-        console.log(`[CACHE] Loaded settings for ${guildSettings.size} guilds.`);
+        console.log(`[CACHE] Synced settings for ${guildSettings.size} guilds.`);
 
         guildCustomCommands.clear();
         let totalCommands = 0;
@@ -44,11 +45,11 @@ async function syncWithDatabase() {
             guildCustomCommands.get(doc.guildId).set(doc.command, doc);
             totalCommands++;
         });
-        console.log(`[CACHE] Loaded ${totalCommands} custom commands for ${guildCustomCommands.size} guilds.`);
-
+        console.log(`[CACHE] Synced ${totalCommands} custom commands for ${guildCustomCommands.size} guilds.`);
+        console.log('[CACHE] Cache sync complete.');
 
     } catch (error) {
-        console.error('Error during periodic sync with Appwrite:', error.message);
+        console.error('[CACHE] Error during periodic sync with Appwrite:', error.message);
     }
 }
 
@@ -65,17 +66,22 @@ async function onReady(client) {
             const existing = await databases.listDocuments(DB_ID, COLLECTIONS.SERVERS, [Query.equal('guildId', guild.id)]);
             const serverData = { name: guild.name, iconUrl: guild.iconURL() || '' };
             if (existing.documents.length === 0) {
-                console.log(`  -> Adding new server: ${guild.name} (${guild.id})`);
+                console.log(`  -> Adding new server to DB: ${guild.name} (${guild.id})`);
                 await databases.createDocument(DB_ID, COLLECTIONS.SERVERS, ID.unique(), { guildId: guild.id, ...serverData });
             } else {
-                 await databases.updateDocument(DB_ID, COLLECTIONS.SERVERS, existing.documents[0].$id, serverData);
+                 const docId = existing.documents[0].$id;
+                 if (existing.documents[0].name !== serverData.name || existing.documents[0].iconUrl !== serverData.iconUrl) {
+                    console.log(`  -> Updating server in DB: ${guild.name} (${guild.id})`);
+                    await databases.updateDocument(DB_ID, COLLECTIONS.SERVERS, docId, serverData);
+                 }
             }
-        } catch (e) { console.error(`Failed to sync server ${guild.name}:`, e.message); }
+        } catch (e) { console.error(`[DB Sync] Failed to sync server ${guild.name}:`, e.message); }
     }
     
     await syncWithDatabase();
     
     try {
+        console.log("🔄 Updating bot info and system status...");
         const botInfoData = { name: client.user.username, avatarUrl: client.user.displayAvatarURL() };
         const botInfoDocs = await databases.listDocuments(DB_ID, COLLECTIONS.BOT_INFO);
         if (botInfoDocs.documents.length > 0) {
@@ -90,7 +96,7 @@ async function onReady(client) {
         } else {
             await databases.createDocument(DB_ID, COLLECTIONS.SYSTEM_STATUS, 'main_status', statusData);
         }
-    } catch(e) { console.error("Failed to update bot info/status on startup:", e.message)}
+    } catch(e) { console.error("[Ready] Failed to update bot info/status on startup:", e.message)}
 
     // Set up periodic sync
     setInterval(syncWithDatabase, 10000); // Sync settings every 10 seconds

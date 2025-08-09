@@ -1,3 +1,4 @@
+
 const { guildSettings } = require('../utils/cache');
 const { logAuditEvent } = require('../utils/loggers');
 
@@ -6,7 +7,7 @@ const { logAuditEvent } = require('../utils/loggers');
  * @param {import('discord.js').GuildMember} member The member who left or was kicked.
  */
 async function onGuildMemberRemove(member) {
-    console.log(`[EVENT] User ${member.user.tag} left guild ${member.guild.name}.`);
+    console.log(`[EVENT] User ${member.user.tag} left guild ${member.guild.name} (${member.guild.id}).`);
     const settings = guildSettings.get(member.guild.id);
     if (!settings) return;
 
@@ -18,10 +19,10 @@ async function onGuildMemberRemove(member) {
                 const goodbyeMessage = (settings.goodbye.message || '{user} has left the server.')
                     .replace('{user}', `**${member.user.tag}**`);
                 await channel.send(goodbyeMessage);
-                console.log(`[DEBUG] Sent goodbye message for ${member.user.tag} in ${member.guild.name}.`);
+                console.log(`[Goodbye] Sent goodbye message for ${member.user.tag} in ${member.guild.name}.`);
             }
         } catch (e) {
-            console.error(`Goodbye message failed for guild ${member.guild.id}:`, e.message);
+            console.error(`[Goodbye] Failed for guild ${member.guild.name} (${member.guild.id}):`, e.message);
         }
     }
     

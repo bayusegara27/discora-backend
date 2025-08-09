@@ -1,3 +1,4 @@
+
 const { databases } = require('../services/appwrite');
 const config = require('../config');
 const { getOrCreateStatsDoc } = require('../utils/helpers');
@@ -35,7 +36,7 @@ async function updateAllServerStats(client) {
                 });
             }
         } catch (error) {
-            console.error(`Failed to update server stats for ${guild.name}:`, error.message);
+            console.error(`[CRON: Stats] Failed to update stats for guild ${guild.name} (${guild.id}):`, error.message);
         }
     }
     console.log(`[CRON: Stats] Finished server stats update.`);

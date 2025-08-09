@@ -1,3 +1,4 @@
+
 const { databases, Query } = require('../services/appwrite');
 const config = require('../config');
 
@@ -16,10 +17,19 @@ async function processScheduledMessages(client) {
             Query.lessThanEqual('nextRun', now)
         ]);
         
+        if (documents.length > 0) {
+            console.log(`[CRON: ScheduledMsg] Found ${documents.length} message(s) to send.`);
+        }
+
         for (const msg of documents) {
             try {
                 const channel = await client.channels.fetch(msg.channelId);
+                if (!channel || !channel.isTextBased()) {
+                    throw new Error(`Channel ${msg.channelId} not found or is not a text-based channel.`);
+                }
+                
                 await channel.send(msg.content);
+                console.log(`[CRON: ScheduledMsg] Sent message ${msg.$id} to #${channel.name} in guild ${channel.guild.name}.`);
 
                 const updates = { lastRun: now, status: 'sent' };
 
@@ -31,16 +41,17 @@ async function processScheduledMessages(client) {
                     
                     updates.nextRun = nextRunDate.toISOString();
                     updates.status = 'pending'; // Reschedule it
+                    console.log(`[CRON: ScheduledMsg] Rescheduled message ${msg.$id} for ${updates.nextRun}.`);
                 }
                 
                 await databases.updateDocument(DB_ID, MESSAGES_COLLECTION, msg.$id, updates);
             } catch (e) {
-                console.error(`Failed to send scheduled message ${msg.$id}:`, e);
+                console.error(`[CRON: ScheduledMsg] Failed to send message ${msg.$id} to channel ${msg.channelId}:`, e.message);
                 await databases.updateDocument(DB_ID, MESSAGES_COLLECTION, msg.$id, { status: 'error' });
             }
         }
     } catch (error) {
-        console.error("Error fetching scheduled messages:", error);
+        console.error("[CRON: ScheduledMsg] Error fetching scheduled messages:", error);
     }
 }
 

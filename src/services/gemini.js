@@ -1,3 +1,4 @@
+
 const { GoogleGenAI } = require('@google/genai');
 const config = require('../config');
 
@@ -12,7 +13,7 @@ if (config.GEMINI.API_KEY && !config.GEMINI.API_KEY.includes('YOUR_GEMINI_API_KE
                 const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: content, config: { systemInstruction } });
                 return response.text.trim();
             } catch (error) {
-                console.error("Gemini moderation call failed:", error.message);
+                console.error(`[Gemini] Moderation call failed for content "${content.substring(0, 50)}...":`, error.message);
                 return 'OK'; // Fail-safe to avoid false positives
             }
         }
