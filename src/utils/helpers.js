@@ -42,11 +42,7 @@ async function getOrCreateStatsDoc(guildId) {
             return response.documents[0];
         } else {
             console.log(`[DEBUG] No stats doc found for guild ${guildId}, creating one...`);
-            const defaultWeekly = JSON.stringify([
-                { day: 'Sun', count: 0 }, { day: 'Mon', count: 0 }, { day: 'Tue', count: 0 },
-                { day: 'Wed', count: 0 }, { day: 'Thu', count: 0 }, { day: 'Fri', count: 0 },
-                { day: 'Sat', count: 0 },
-            ]);
+            const defaultWeekly = '[]';
             const defaultRoles = JSON.stringify([]);
             return await databases.createDocument(config.APPWRITE.DATABASE_ID, STATS_COLLECTION, ID.unique(), {
                 doc_id: 'main_stats',
