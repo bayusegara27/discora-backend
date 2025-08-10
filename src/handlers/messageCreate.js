@@ -1,5 +1,7 @@
 
 
+
+
 const { EmbedBuilder, PermissionsBitField } = require('discord.js');
 const config = require('../config');
 const geminiService = require('../services/gemini');
@@ -178,12 +180,9 @@ async function updateMessageStats(message) {
             } else {
                 weeklyData.push({ date: today, count: 1 });
             }
-            
-            const prunedData = weeklyData.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7);
 
             await databases.updateDocument(DB_ID, STATS_COLLECTION, statsDoc.$id, {
-                messagesToday: (statsDoc.messagesToday || 0) + 1,
-                messagesWeekly: JSON.stringify(prunedData),
+                messagesWeekly: JSON.stringify(weeklyData),
             });
             
         } catch (error) {

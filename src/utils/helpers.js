@@ -1,3 +1,4 @@
+
 const fetch = require('node-fetch');
 const { databases, Query, ID } = require('../services/appwrite');
 const config = require('../config');
@@ -49,7 +50,6 @@ async function getOrCreateStatsDoc(guildId) {
                 guildId, 
                 memberCount: 0, 
                 onlineCount: 0, 
-                messagesToday: 0, 
                 commandCount: 0, 
                 totalWarnings: 0,
                 messagesWeekly: defaultWeekly,

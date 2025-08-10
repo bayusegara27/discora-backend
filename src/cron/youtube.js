@@ -1,4 +1,5 @@
 
+
 const { databases, Query } = require('../services/appwrite');
 const config = require('../config');
 const { fetchYoutubeChannelName, isVideoLive } = require('../utils/helpers');
@@ -60,6 +61,84 @@ const sendNotification = async (client, sub, video) => {
 };
 
 /**
+ * Processes a single YouTube subscription.
+ * @param {object} sub The subscription document from Appwrite.
+ * @param {import('discord.js').Client} client The Discord client instance.
+ */
+async function processSubscription(sub, client) {
+    const updatePayload = {};
+    try {
+        // Fetch and update YouTube channel name if missing
+        if (!sub.youtubeChannelName) {
+            const channelName = await fetchYoutubeChannelName(sub.youtubeChannelId);
+            if (channelName) {
+                sub.youtubeChannelName = channelName; // Update in-memory object
+                updatePayload.youtubeChannelName = channelName;
+                console.log(`[YouTube] Fetched YT channel name for ${sub.youtubeChannelId}: "${channelName}"`);
+            }
+        }
+
+        // Fetch and update Discord channel name if missing
+        if (!sub.discordChannelName) {
+            const discordChannel = await client.channels.fetch(sub.discordChannelId).catch(() => null);
+            if (discordChannel) {
+                sub.discordChannelName = discordChannel.name; // Update in-memory object
+                updatePayload.discordChannelName = discordChannel.name;
+                console.log(`[YouTube] Fetched Discord channel name for ${sub.discordChannelId}: "#${discordChannel.name}"`);
+            }
+        }
+        
+        const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${sub.youtubeChannelId}`;
+        const feedResponse = await fetch(feedUrl);
+        if (!feedResponse.ok) {
+            console.warn(`[YouTube] Failed to fetch feed for ${sub.youtubeChannelName || sub.youtubeChannelId}. Status: ${feedResponse.status}`);
+            return;
+        }
+        const feedText = await feedResponse.text();
+        const videosInFeed = parseVideosFromFeed(feedText);
+        if (videosInFeed.length === 0) return;
+        
+        // Initialize subscription if it's new
+        if (!sub.announcedVideoIds || sub.announcedVideoIds === '[]') {
+            const allVideoIds = videosInFeed.map(v => v.id);
+            updatePayload.announcedVideoIds = JSON.stringify(allVideoIds);
+            updatePayload.lastVideoTimestamp = new Date().toISOString();
+            console.log(`[YouTube] Initialized subscription for "${sub.youtubeChannelName}". Stored ${allVideoIds.length} latest video IDs.`);
+        } else {
+            const announcedIds = new Set(JSON.parse(sub.announcedVideoIds || '[]'));
+            const newVideosToAnnounce = videosInFeed.filter(video => !announcedIds.has(video.id));
+
+            if (newVideosToAnnounce.length > 0) {
+                console.log(`[YouTube] Found ${newVideosToAnnounce.length} new video(s) for "${sub.youtubeChannelName}".`);
+                
+                // Announce videos from oldest to newest
+                for (const video of newVideosToAnnounce.slice().reverse()) {
+                    await sendNotification(client, sub, video);
+                }
+
+                // Update the database payload with all new info
+                const newAnnouncedIds = newVideosToAnnounce.map(v => v.id);
+                const updatedIdList = [...Array.from(announcedIds), ...newAnnouncedIds].slice(-20); // Keep last 20
+                
+                const latestVideo = newVideosToAnnounce[newVideosToAnnounce.length - 1];
+
+                updatePayload.announcedVideoIds = JSON.stringify(updatedIdList);
+                updatePayload.lastVideoTimestamp = new Date().toISOString();
+                updatePayload.lastAnnouncedVideoId = latestVideo.id;
+                updatePayload.lastAnnouncedVideoTitle = latestVideo.title;
+            }
+        }
+
+        // If there's anything to update, do it now in a single atomic call
+        if (Object.keys(updatePayload).length > 0) {
+            await databases.updateDocument(DB_ID, SUBS_COLLECTION, sub.$id, updatePayload);
+        }
+    } catch (error) {
+        console.error(`[YouTube] Error processing sub ${sub.$id} (${sub.youtubeChannelName || 'ID:'+sub.youtubeChannelId}):`, error.message);
+    }
+}
+
+/**
  * Checks all YouTube subscriptions for new videos.
  * @param {import('discord.js').Client} client The Discord client instance.
  */
@@ -78,80 +157,9 @@ async function checkYouTube(client) {
             return;
         }
 
-        for (const sub of allSubs) {
-            const updatePayload = {};
-            try {
-                // Fetch and update YouTube channel name if missing
-                if (!sub.youtubeChannelName) {
-                    const channelName = await fetchYoutubeChannelName(sub.youtubeChannelId);
-                    if (channelName) {
-                        sub.youtubeChannelName = channelName; // Update in-memory object
-                        updatePayload.youtubeChannelName = channelName;
-                        console.log(`[YouTube] Fetched YT channel name for ${sub.youtubeChannelId}: "${channelName}"`);
-                    }
-                }
+        const processingPromises = allSubs.map(sub => processSubscription(sub, client));
+        await Promise.all(processingPromises);
 
-                // Fetch and update Discord channel name if missing
-                if (!sub.discordChannelName) {
-                    const discordChannel = await client.channels.fetch(sub.discordChannelId).catch(() => null);
-                    if (discordChannel) {
-                        sub.discordChannelName = discordChannel.name; // Update in-memory object
-                        updatePayload.discordChannelName = discordChannel.name;
-                        console.log(`[YouTube] Fetched Discord channel name for ${sub.discordChannelId}: "#${discordChannel.name}"`);
-                    }
-                }
-                
-                const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${sub.youtubeChannelId}`;
-                const feedResponse = await fetch(feedUrl);
-                if (!feedResponse.ok) {
-                    console.warn(`[YouTube] Failed to fetch feed for ${sub.youtubeChannelName || sub.youtubeChannelId}. Status: ${feedResponse.status}`);
-                    continue;
-                }
-                const feedText = await feedResponse.text();
-                const videosInFeed = parseVideosFromFeed(feedText);
-                if (videosInFeed.length === 0) continue;
-                
-                // Initialize subscription if it's new
-                if (!sub.announcedVideoIds || sub.announcedVideoIds === '[]') {
-                    const allVideoIds = videosInFeed.map(v => v.id);
-                    updatePayload.announcedVideoIds = JSON.stringify(allVideoIds);
-                    updatePayload.lastVideoTimestamp = new Date().toISOString();
-                    console.log(`[YouTube] Initialized subscription for "${sub.youtubeChannelName}". Stored ${allVideoIds.length} latest video IDs.`);
-                } else {
-                    const announcedIds = new Set(JSON.parse(sub.announcedVideoIds || '[]'));
-                    const newVideosToAnnounce = videosInFeed.filter(video => !announcedIds.has(video.id));
-
-                    if (newVideosToAnnounce.length > 0) {
-                        console.log(`[YouTube] Found ${newVideosToAnnounce.length} new video(s) for "${sub.youtubeChannelName}".`);
-                        
-                        // Announce videos from oldest to newest
-                        for (const video of newVideosToAnnounce.slice().reverse()) {
-                            await sendNotification(client, sub, video);
-                        }
-
-                        // Update the database payload with all new info
-                        const newAnnouncedIds = newVideosToAnnounce.map(v => v.id);
-                        const updatedIdList = [...Array.from(announcedIds), ...newAnnouncedIds].slice(-20); // Keep last 20
-                        
-                        const latestVideo = newVideosToAnnounce[newVideosToAnnounce.length - 1];
-
-                        updatePayload.announcedVideoIds = JSON.stringify(updatedIdList);
-                        updatePayload.lastVideoTimestamp = new Date().toISOString();
-                        updatePayload.lastAnnouncedVideoId = latestVideo.id;
-                        updatePayload.lastAnnouncedVideoTitle = latestVideo.title;
-                    }
-                }
-
-                // If there's anything to update, do it now in a single atomic call
-                if (Object.keys(updatePayload).length > 0) {
-                    console.log(`[YouTube] Updating DB for sub ${sub.$id} (${sub.youtubeChannelName}) with payload:`, updatePayload);
-                    await databases.updateDocument(DB_ID, SUBS_COLLECTION, sub.$id, updatePayload);
-                }
-
-            } catch (error) {
-                console.error(`[YouTube] Error processing sub ${sub.$id} (${sub.youtubeChannelName || 'ID:'+sub.youtubeChannelId}):`, error.message);
-            }
-        }
     } catch (error) {
         console.error("[CRON: YouTube] Critical error fetching subscriptions list:", error);
     } finally {
