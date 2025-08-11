@@ -1,6 +1,3 @@
-
-
-
 const { databases, Query } = require('../services/appwrite');
 const config = require('../config');
 

@@ -1,4 +1,3 @@
-
 const { databases, Query, ID } = require('../services/appwrite');
 const { ChannelType } = require('discord.js');
 const config = require('../config');

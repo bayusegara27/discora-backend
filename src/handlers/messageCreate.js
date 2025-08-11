@@ -1,7 +1,3 @@
-
-
-
-
 const { EmbedBuilder, PermissionsBitField } = require('discord.js');
 const config = require('../config');
 const geminiService = require('../services/gemini');

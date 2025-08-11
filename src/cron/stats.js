@@ -1,4 +1,3 @@
-
 const { databases } = require('../services/appwrite');
 const config = require('../config');
 const { getOrCreateStatsDoc } = require('../utils/helpers');
@@ -18,22 +17,23 @@ async function updateAllServerStats(client) {
             await guild.members.fetch();
             await guild.roles.fetch();
 
-            const memberCount = guild.memberCount;
-            const onlineCount = guild.members.cache.filter(m => ['online', 'dnd', 'idle'].includes(m.presence?.status)).size;
-            const commandCount = guildCustomCommands.get(guild.id)?.size || 0;
-            const roleDistribution = guild.roles.cache
-                .filter(role => role.name !== '@everyone' && role.members.size > 0)
-                .map(role => ({ name: role.name, count: role.members.size, color: role.hexColor }))
-                .sort((a, b) => b.count - a.count);
-
             const statsDoc = await getOrCreateStatsDoc(guild.id);
             if (statsDoc) {
-                await databases.updateDocument(DB_ID, STATS_COLLECTION, statsDoc.$id, {
-                    memberCount,
-                    onlineCount,
-                    commandCount,
-                    roleDistribution: JSON.stringify(roleDistribution)
-                });
+                const newStatsPayload = {
+                    memberCount: guild.memberCount,
+                    onlineCount: guild.members.cache.filter(m => m.presence?.status && ['online', 'dnd', 'idle'].includes(m.presence.status)).size,
+                    commandCount: guildCustomCommands.get(guild.id)?.size || 0,
+                    roleDistribution: JSON.stringify(
+                        guild.roles.cache
+                            .filter(role => role.name !== '@everyone' && role.members.size > 0)
+                            .map(role => ({ name: role.name, count: role.members.size, color: role.hexColor }))
+                            .sort((a, b) => b.count - a.count)
+                    ),
+                    // Preserve the existing messagesWeekly field to prevent it from being overwritten.
+                    messagesWeekly: statsDoc.messagesWeekly || '[]'
+                };
+
+                await databases.updateDocument(DB_ID, STATS_COLLECTION, statsDoc.$id, newStatsPayload);
             }
         } catch (error) {
             console.error(`[CRON: Stats] Failed to update stats for guild ${guild.name} (${guild.id}):`, error.message);

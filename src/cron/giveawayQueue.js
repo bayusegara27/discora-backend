@@ -1,4 +1,3 @@
-
 const { databases } = require('../services/appwrite');
 const { EmbedBuilder } = require('discord.js');
 const config = require('../config');

@@ -1,5 +1,4 @@
 const cron = require('node-cron');
-
 const checkYouTube = require('./youtube');
 const updateAllServerStats = require('./stats');
 const resetDailyStats = require('./dailyReset');

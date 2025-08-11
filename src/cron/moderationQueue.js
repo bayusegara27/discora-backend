@@ -1,4 +1,3 @@
-
 const { databases } = require('../services/appwrite');
 const config = require('../config');
 const { logAuditEvent } = require('../utils/loggers');

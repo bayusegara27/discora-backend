@@ -1,5 +1,3 @@
-
-
 const { databases, Query } = require('../services/appwrite');
 const config = require('../config');
 const { fetchYoutubeChannelName, isVideoLive } = require('../utils/helpers');
